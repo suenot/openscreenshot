@@ -37,7 +37,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let ssItem = NSMenuItem(title: "Take Screenshot  \(hotkey.displayString)", action: #selector(openScreenshotTool), keyEquivalent: "")
         menu.addItem(ssItem)
 
-        let hotkeyItem = NSMenuItem(title: "Set Hotkey… (\(hotkey.displayString))", action: #selector(openHotkeyRecorder), keyEquivalent: "")
+        let hotkeyItem = NSMenuItem(title: "Set Hotkey…", action: #selector(openHotkeyRecorder), keyEquivalent: "")
         menu.addItem(hotkeyItem)
 
         menu.addItem(.separator())
