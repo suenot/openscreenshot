@@ -40,8 +40,9 @@ class ToolbarPanel: NSPanel {
 
     func showCentered(on screen: NSScreen) {
         let panelW: CGFloat = 320
-        let x = screen.frame.minX + (screen.visibleFrame.width - panelW) / 2
-        let y = screen.frame.minY + screen.visibleFrame.minY + 20
+        // visibleFrame is already in global screen coordinates — use it directly
+        let x = screen.visibleFrame.minX + (screen.visibleFrame.width - panelW) / 2
+        let y = screen.visibleFrame.minY + 20
         self.setFrameOrigin(NSPoint(x: x, y: y))
         self.orderFront(nil)
     }

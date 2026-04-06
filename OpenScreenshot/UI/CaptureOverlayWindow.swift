@@ -32,7 +32,7 @@ class CaptureOverlayWindow: NSWindow {
     }
 
     override var acceptsFirstResponder: Bool { true }
-    override func becomeKey() -> Bool { return true }
+    override var canBecomeKey: Bool { true }
 
     // MARK: - Mouse
 
@@ -49,8 +49,11 @@ class CaptureOverlayWindow: NSWindow {
         let y = min(dragStartPoint.y, current.y)
         let w = abs(current.x - dragStartPoint.x)
         let h = abs(current.y - dragStartPoint.y)
+        // Keep in AppKit coords (bottom-left origin) for currentSelectionInScreenCoords()
         selectionRect = CGRect(x: x, y: y, width: w, height: h)
-        state.selectionRect = selectionRect
+        // Flip Y for SwiftUI (top-left origin)
+        let viewHeight = contentView?.bounds.height ?? frame.height
+        state.selectionRect = CGRect(x: x, y: viewHeight - y - h, width: w, height: h)
         state.isDragging = true
     }
 
@@ -82,10 +85,14 @@ class CaptureOverlayWindow: NSWindow {
     func currentSelectionInScreenCoords() -> CGRect? {
         guard selectionRect.width > 5, selectionRect.height > 5 else { return nil }
         let screen = NSScreen.main ?? NSScreen.screens[0]
-        let screenY = screen.frame.height - selectionRect.maxY
+        // Convert AppKit bottom-left window coords → CG top-left global screen coords.
+        // Primary screen height is the flip reference for the global CG coordinate space.
+        let primaryHeight = NSScreen.screens[0].frame.height
+        let appKitGlobalY = selectionRect.minY + screen.frame.minY
+        let cgY = primaryHeight - appKitGlobalY - selectionRect.height
         return CGRect(
             x: selectionRect.minX + screen.frame.minX,
-            y: screenY + screen.frame.minY,
+            y: cgY,
             width: selectionRect.width,
             height: selectionRect.height
         )
