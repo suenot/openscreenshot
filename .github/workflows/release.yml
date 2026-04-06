@@ -1,0 +1,80 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.3.app/Contents/Developer
+
+      - name: Build archive
+        run: |
+          xcodebuild archive \
+            -project OpenScreenshot.xcodeproj \
+            -scheme OpenScreenshot \
+            -configuration Release \
+            -archivePath $RUNNER_TEMP/OpenScreenshot.xcarchive \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            DEVELOPMENT_TEAM="" \
+            ENABLE_APP_SANDBOX=NO \
+            | xcbeautify || true
+
+      - name: Export .app from archive
+        run: |
+          APP_PATH="$RUNNER_TEMP/OpenScreenshot.xcarchive/Products/Applications/OpenScreenshot.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Archive Products path not found, trying alternative..."
+            APP_PATH=$(find "$RUNNER_TEMP/OpenScreenshot.xcarchive" -name "OpenScreenshot.app" -type d | head -1)
+          fi
+          echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
+          ditto -c -k --keepParent "$APP_PATH" "$RUNNER_TEMP/OpenScreenshot.zip"
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: Create DMG
+        run: |
+          mkdir -p $RUNNER_TEMP/dmg-contents
+          cp -R "$APP_PATH" $RUNNER_TEMP/dmg-contents/
+          ln -s /Applications $RUNNER_TEMP/dmg-contents/Applications
+          hdiutil create \
+            -volname "OpenScreenshot ${{ steps.version.outputs.VERSION }}" \
+            -srcfolder $RUNNER_TEMP/dmg-contents \
+            -ov -format UDZO \
+            "$RUNNER_TEMP/OpenScreenshot-${{ steps.version.outputs.VERSION }}.dmg"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "OpenScreenshot ${{ steps.version.outputs.VERSION }}"
+          body: |
+            ## OpenScreenshot ${{ steps.version.outputs.VERSION }}
+
+            macOS menu bar app for capturing screen regions with auto-downscale for LLM context.
+
+            ### Installation
+            1. Download `OpenScreenshot-${{ steps.version.outputs.VERSION }}.dmg`
+            2. Open the DMG and drag OpenScreenshot to Applications
+            3. Launch from Applications (right-click → Open on first launch)
+            4. Grant **Screen Recording** and **Accessibility** permissions when prompted
+
+            ### Note
+            This build is not notarized. On first launch, right-click the app → Open, then click Open in the dialog.
+          files: |
+            ${{ runner.temp }}/OpenScreenshot-${{ steps.version.outputs.VERSION }}.dmg
+            ${{ runner.temp }}/OpenScreenshot.zip
+          draft: false
+          prerelease: false
