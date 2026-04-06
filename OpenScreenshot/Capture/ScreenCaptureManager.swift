@@ -25,33 +25,12 @@ class ScreenCaptureManager {
     /// Returns PNG data or nil.
     func capture(rect: CGRect, preset: ScalePreset) async -> Data? {
         let displayID = displayContaining(rect: rect)
-        let scale = CGFloat(CGDisplayScreenSize(displayID).width > 0
-                            ? CGDisplayPixelsWide(displayID)
-                            : 1) / CGDisplayBounds(displayID).width
 
-        // CGDisplayBounds: CG global coords, top-left origin, in POINTS
-        // CGDisplayCreateImage(rect:): expects PIXELS relative to display top-left
-        let displayBounds = CGDisplayBounds(displayID)
-        let relRect = CGRect(
-            x: (rect.origin.x - displayBounds.origin.x) * scale,
-            y: (rect.origin.y - displayBounds.origin.y) * scale,
-            width: rect.width * scale,
-            height: rect.height * scale
-        )
-
-        print("=== CAPTURE DEBUG ===")
-        print("input rect (CG points): \(rect)")
-        print("displayBounds (CG points): \(displayBounds)")
-        print("scale: \(scale)")
-        print("relRect (pixels): \(relRect)")
-        print("display pixels: \(CGDisplayPixelsWide(displayID)) x \(CGDisplayPixelsHigh(displayID))")
-
-        guard let cgImage = CGDisplayCreateImage(displayID, rect: relRect) else {
+        // CGDisplayCreateImage(rect:) expects global display coordinates in points
+        guard let cgImage = CGDisplayCreateImage(displayID, rect: rect) else {
             print("CGDisplayCreateImage failed — check Screen Recording permission")
             return nil
         }
-
-        print("captured image: \(cgImage.width) x \(cgImage.height)")
 
         let scaled = applyScale(cgImage: cgImage, factor: preset.factor)
         return pngData(from: scaled)
@@ -70,12 +49,6 @@ class ScreenCaptureManager {
             if bounds.contains(rect.origin) { return id }
         }
         return CGMainDisplayID()
-    }
-
-    private func screen(for displayID: CGDirectDisplayID) -> NSScreen? {
-        NSScreen.screens.first {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == displayID
-        }
     }
 
     private func applyScale(cgImage: CGImage, factor: Double) -> CGImage {
