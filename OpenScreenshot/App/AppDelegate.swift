@@ -62,6 +62,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(loginItem)
 
         menu.addItem(.separator())
+        menu.addItem(withTitle: "GitHub: suenot/openscreenshot", action: #selector(openGitHub), keyEquivalent: "")
+        menu.addItem(.separator())
         menu.addItem(withTitle: "Quit OpenScreenshot", action: #selector(NSApp.terminate(_:)), keyEquivalent: "q")
 
         statusItem.menu = menu
@@ -82,6 +84,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openScreenshotTool() {
         showCaptureUI()
+    }
+
+    @objc private func openGitHub() {
+        NSWorkspace.shared.open(URL(string: "https://github.com/suenot/openscreenshot")!)
     }
 
     @objc private func selectScale(_ sender: NSMenuItem) {
