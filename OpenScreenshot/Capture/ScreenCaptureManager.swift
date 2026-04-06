@@ -24,14 +24,14 @@ class ScreenCaptureManager {
     /// Captures `rect` (CG global coords, top-left origin, points) scaled by `preset.factor`.
     /// Returns PNG data or nil.
     func capture(rect: CGRect, preset: ScalePreset) async -> Data? {
-        // Find which display contains the rect
         let displayID = displayContaining(rect: rect)
-        let screen = screen(for: displayID)
-        let scale = screen?.backingScaleFactor ?? 1.0
+        let scale = CGFloat(CGDisplayScreenSize(displayID).width > 0
+                            ? CGDisplayPixelsWide(displayID)
+                            : 1) / CGDisplayBounds(displayID).width
 
-        // CGDisplayCreateImageForRect takes pixel coords relative to the display,
-        // with top-left origin — exactly what our rect already is (after subtracting display origin).
-        let displayBounds = CGDisplayBounds(displayID) // in CG global points, top-left origin
+        // CGDisplayBounds: CG global coords, top-left origin, in POINTS
+        // CGDisplayCreateImage(rect:): expects PIXELS relative to display top-left
+        let displayBounds = CGDisplayBounds(displayID)
         let relRect = CGRect(
             x: (rect.origin.x - displayBounds.origin.x) * scale,
             y: (rect.origin.y - displayBounds.origin.y) * scale,
@@ -39,10 +39,19 @@ class ScreenCaptureManager {
             height: rect.height * scale
         )
 
+        print("=== CAPTURE DEBUG ===")
+        print("input rect (CG points): \(rect)")
+        print("displayBounds (CG points): \(displayBounds)")
+        print("scale: \(scale)")
+        print("relRect (pixels): \(relRect)")
+        print("display pixels: \(CGDisplayPixelsWide(displayID)) x \(CGDisplayPixelsHigh(displayID))")
+
         guard let cgImage = CGDisplayCreateImage(displayID, rect: relRect) else {
             print("CGDisplayCreateImage failed — check Screen Recording permission")
             return nil
         }
+
+        print("captured image: \(cgImage.width) x \(cgImage.height)")
 
         let scaled = applyScale(cgImage: cgImage, factor: preset.factor)
         return pngData(from: scaled)
