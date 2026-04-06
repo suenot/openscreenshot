@@ -65,6 +65,11 @@ class CaptureOverlayWindow: NSWindow {
     private let handleHitRadius: CGFloat = 10
     private let minRectSize: CGFloat = 10
 
+    // Move state
+    private var isMoving: Bool = false
+    private var moveDragStart: NSPoint = .zero
+    private var moveRectStart: CGRect = .zero
+
     init() {
         let screen = NSScreen.main ?? NSScreen.screens[0]
         super.init(
@@ -97,13 +102,24 @@ class CaptureOverlayWindow: NSWindow {
         if selectionRect != .zero, let handle = hitTestHandle(at: loc) {
             // Resize mode
             activeHandle = handle
+            isMoving = false
             resizeDragStart = loc
             resizeRectStart = selectionRect
             state.isResizing = true
             state.isDrawingNew = false
             handle.cursor.set()
+        } else if selectionRect != .zero && selectionRect.contains(loc) {
+            // Move mode — click inside existing rect
+            isMoving = true
+            activeHandle = nil
+            moveDragStart = loc
+            moveRectStart = selectionRect
+            state.isResizing = false
+            state.isDrawingNew = false
+            NSCursor.closedHand.set()
         } else {
             // New selection
+            isMoving = false
             activeHandle = nil
             dragStartPoint = loc
             selectionRect = .zero
@@ -116,6 +132,19 @@ class CaptureOverlayWindow: NSWindow {
 
     override func mouseDragged(with event: NSEvent) {
         let current = event.locationInWindow
+
+        if isMoving {
+            // Move existing rect
+            let dx = current.x - moveDragStart.x
+            let dy = current.y - moveDragStart.y
+            let newRect = moveRectStart.offsetBy(dx: dx, dy: dy)
+            selectionRect = newRect
+            state.selectionRect = toSwiftUICoords(newRect)
+            state.isDragging = true
+            state.isDrawingNew = false
+            state.isResizing = false
+            return
+        }
 
         if let handle = activeHandle {
             // Resize existing rect
@@ -160,6 +189,7 @@ class CaptureOverlayWindow: NSWindow {
 
     override func mouseUp(with event: NSEvent) {
         activeHandle = nil
+        isMoving = false
         state.isResizing = false
         state.isDrawingNew = false
         state.isDragging = selectionRect != .zero
@@ -170,6 +200,8 @@ class CaptureOverlayWindow: NSWindow {
         let loc = event.locationInWindow
         if selectionRect != .zero, let handle = hitTestHandle(at: loc) {
             handle.cursor.set()
+        } else if selectionRect != .zero && selectionRect.contains(loc) {
+            NSCursor.openHand.set()
         } else {
             NSCursor.crosshair.set()
         }
@@ -257,6 +289,7 @@ class OverlayState: ObservableObject {
     @Published var isDragging: Bool = false
     @Published var isDrawingNew: Bool = false
     @Published var isResizing: Bool = false
+    @Published var scaleFactor: Double = ScalePreset.load().factor
 }
 
 struct SelectionStateView: View {
@@ -267,7 +300,8 @@ struct SelectionStateView: View {
             selectionRect: Binding(get: { state.selectionRect }, set: { state.selectionRect = $0 }),
             isDragging: Binding(get: { state.isDragging }, set: { state.isDragging = $0 }),
             isDrawingNew: Binding(get: { state.isDrawingNew }, set: { state.isDrawingNew = $0 }),
-            isResizing: Binding(get: { state.isResizing }, set: { state.isResizing = $0 })
+            isResizing: Binding(get: { state.isResizing }, set: { state.isResizing = $0 }),
+            scaleFactor: state.scaleFactor
         )
     }
 }

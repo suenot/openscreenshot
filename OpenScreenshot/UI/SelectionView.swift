@@ -5,22 +5,12 @@ struct SelectionView: View {
     @Binding var isDragging: Bool
     @Binding var isDrawingNew: Bool
     @Binding var isResizing: Bool
+    var scaleFactor: Double = 1.0
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                if isDragging {
-                    Color.black.opacity(0.3)
-                        .allowsHitTesting(false)
-                }
-
                 if isDragging && selectionRect != .zero {
-                    // Punch a clear hole through the dim overlay
-                    Rectangle()
-                        .fill(Color.clear)
-                        .frame(width: selectionRect.width, height: selectionRect.height)
-                        .position(x: selectionRect.midX, y: selectionRect.midY)
-                        .blendMode(.destinationOut)
 
                     // Dashed selection border
                     Rectangle()
@@ -29,11 +19,16 @@ struct SelectionView: View {
                         .position(x: selectionRect.midX, y: selectionRect.midY)
                         .allowsHitTesting(false)
 
-                    // Pixel size label
-                    let scale = NSScreen.main?.backingScaleFactor ?? 2.0
-                    let pw = Int(selectionRect.width * scale)
-                    let ph = Int(selectionRect.height * scale)
-                    Text("\(pw) × \(ph)")
+                    // Size label — original and scaled
+                    let backing = NSScreen.main?.backingScaleFactor ?? 2.0
+                    let origW = Int(selectionRect.width * backing)
+                    let origH = Int(selectionRect.height * backing)
+                    let scaledW = Int(Double(origW) * scaleFactor)
+                    let scaledH = Int(Double(origH) * scaleFactor)
+                    let sizeText = scaleFactor == 1.0
+                        ? "\(origW) × \(origH)"
+                        : "\(origW) × \(origH)  →  \(scaledW) × \(scaledH)"
+                    Text(sizeText)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.white)
                         .padding(.horizontal, 6)
@@ -41,7 +36,7 @@ struct SelectionView: View {
                         .background(Color.black.opacity(0.6))
                         .cornerRadius(4)
                         .position(
-                            x: min(selectionRect.maxX, geo.size.width - 60),
+                            x: min(selectionRect.maxX, geo.size.width - 80),
                             y: max(selectionRect.minY - 20, 16)
                         )
                         .allowsHitTesting(false)
