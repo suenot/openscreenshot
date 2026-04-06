@@ -3,6 +3,8 @@ import SwiftUI
 struct SelectionView: View {
     @Binding var selectionRect: CGRect
     @Binding var isDragging: Bool
+    @Binding var isDrawingNew: Bool
+    @Binding var isResizing: Bool
 
     var body: some View {
         GeometryReader { geo in
@@ -20,7 +22,7 @@ struct SelectionView: View {
                         .position(x: selectionRect.midX, y: selectionRect.midY)
                         .blendMode(.destinationOut)
 
-                    // Selection border (dashed)
+                    // Dashed selection border
                     Rectangle()
                         .stroke(Color.white, style: StrokeStyle(lineWidth: 1.5, dash: [6, 3]))
                         .frame(width: selectionRect.width, height: selectionRect.height)
@@ -43,9 +45,44 @@ struct SelectionView: View {
                             y: max(selectionRect.minY - 20, 16)
                         )
                         .allowsHitTesting(false)
+
+                    // Resize handles — visible only when rect is settled
+                    if !isDrawingNew && !isResizing {
+                        ResizeHandlesView(rect: selectionRect)
+                    }
                 }
             }
             .compositingGroup()
+        }
+    }
+}
+
+// MARK: - Resize handles overlay
+
+struct ResizeHandlesView: View {
+    let rect: CGRect
+
+    private var handlePoints: [CGPoint] {
+        [
+            CGPoint(x: rect.minX, y: rect.minY),  // topLeft
+            CGPoint(x: rect.midX, y: rect.minY),  // topCenter
+            CGPoint(x: rect.maxX, y: rect.minY),  // topRight
+            CGPoint(x: rect.minX, y: rect.midY),  // middleLeft
+            CGPoint(x: rect.maxX, y: rect.midY),  // middleRight
+            CGPoint(x: rect.minX, y: rect.maxY),  // bottomLeft
+            CGPoint(x: rect.midX, y: rect.maxY),  // bottomCenter
+            CGPoint(x: rect.maxX, y: rect.maxY),  // bottomRight
+        ]
+    }
+
+    var body: some View {
+        ForEach(handlePoints.indices, id: \.self) { i in
+            Circle()
+                .fill(Color.white)
+                .overlay(Circle().stroke(Color.accentColor, lineWidth: 1.5))
+                .frame(width: 8, height: 8)
+                .position(handlePoints[i])
+                .allowsHitTesting(false) // NSWindow handles all mouse events
         }
     }
 }
