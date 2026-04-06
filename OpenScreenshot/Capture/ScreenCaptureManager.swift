@@ -1,5 +1,4 @@
 import Foundation
-import ScreenCaptureKit
 import CoreImage
 import AppKit
 
@@ -11,77 +10,62 @@ class ScreenCaptureManager {
 
     // MARK: - Permission
 
+    /// Triggers the Screen Recording permission dialog (first call only).
     func requestPermission() async -> Bool {
-        do {
-            try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            return true
-        } catch {
-            return false
-        }
+        // CGDisplayCreateImageForRect requires Screen Recording permission.
+        // Attempt a tiny capture to trigger the system prompt.
+        let display = CGMainDisplayID()
+        let tiny = CGRect(x: 0, y: 0, width: 1, height: 1)
+        return CGDisplayCreateImage(display, rect: tiny) != nil
     }
 
     // MARK: - Capture
 
-    /// Captures `rect` (in CG global screen points, top-left origin) and scales by `preset.factor`.
+    /// Captures `rect` (CG global coords, top-left origin, points) scaled by `preset.factor`.
     /// Returns PNG data or nil.
     func capture(rect: CGRect, preset: ScalePreset) async -> Data? {
-        // NSScreen.frame uses AppKit coords (bottom-left origin).
-        // rect is in CG coords (top-left origin). Convert rect origin to AppKit to find the screen.
-        let primaryHeight = NSScreen.screens[0].frame.height
-        let appKitOrigin = CGPoint(x: rect.origin.x, y: primaryHeight - rect.origin.y - rect.height)
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(appKitOrigin) })
-                  ?? NSScreen.main
-                  ?? NSScreen.screens[0]
+        // Find which display contains the rect
+        let displayID = displayContaining(rect: rect)
+        let screen = screen(for: displayID)
+        let scale = screen?.backingScaleFactor ?? 1.0
 
-        guard let display = await display(for: screen) else { return nil }
-
-        let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-        let config = SCStreamConfiguration()
-
-        let scale = screen.backingScaleFactor
-
-        // SCKit sourceRect: pixel coords relative to this display, top-left origin.
-        let screenCGTop = primaryHeight - screen.frame.maxY
-        let relX = rect.origin.x - screen.frame.minX
-        let relY = rect.origin.y - screenCGTop
-
-        let pixelRect = CGRect(
-            x: relX * scale,
-            y: relY * scale,
+        // CGDisplayCreateImageForRect takes pixel coords relative to the display,
+        // with top-left origin — exactly what our rect already is (after subtracting display origin).
+        let displayBounds = CGDisplayBounds(displayID) // in CG global points, top-left origin
+        let relRect = CGRect(
+            x: (rect.origin.x - displayBounds.origin.x) * scale,
+            y: (rect.origin.y - displayBounds.origin.y) * scale,
             width: rect.width * scale,
             height: rect.height * scale
         )
 
-        config.width = Int(rect.width * scale)
-        config.height = Int(rect.height * scale)
-        config.sourceRect = pixelRect
-        config.scalesToFit = false
-        config.pixelFormat = kCVPixelFormatType_32BGRA
-
-        do {
-            let cgImage = try await SCScreenshotManager.captureImage(
-                contentFilter: filter,
-                configuration: config
-            )
-            let scaled = applyScale(cgImage: cgImage, factor: preset.factor)
-            return pngData(from: scaled)
-        } catch {
-            print("Capture error: \(error)")
+        guard let cgImage = CGDisplayCreateImage(displayID, rect: relRect) else {
+            print("CGDisplayCreateImage failed — check Screen Recording permission")
             return nil
         }
+
+        let scaled = applyScale(cgImage: cgImage, factor: preset.factor)
+        return pngData(from: scaled)
     }
 
     // MARK: - Private
 
-    private func display(for screen: NSScreen) async -> SCDisplay? {
-        do {
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            // Match by display ID stored in NSScreen's deviceDescription
-            let screenID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
-            return content.displays.first(where: { $0.displayID == screenID })
-                ?? content.displays.first
-        } catch {
-            return nil
+    private func displayContaining(rect: CGRect) -> CGDirectDisplayID {
+        var displayCount: UInt32 = 0
+        CGGetActiveDisplayList(0, nil, &displayCount)
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+        CGGetActiveDisplayList(displayCount, &displays, &displayCount)
+
+        for id in displays {
+            let bounds = CGDisplayBounds(id)
+            if bounds.contains(rect.origin) { return id }
+        }
+        return CGMainDisplayID()
+    }
+
+    private func screen(for displayID: CGDirectDisplayID) -> NSScreen? {
+        NSScreen.screens.first {
+            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == displayID
         }
     }
 
