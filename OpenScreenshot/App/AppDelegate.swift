@@ -5,7 +5,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem!
     private var overlayWindow: CaptureOverlayWindow?
-    private var toolbarPanel: ToolbarPanel?
     private var eventTap: CFMachPort?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -20,19 +19,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Menu Bar
 
+    private var recorderPanel: HotkeyRecorderPanel?
+
     private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
             button.image = NSImage(systemSymbolName: "viewfinder", accessibilityDescription: "OpenScreenshot")
             button.image?.isTemplate = true
         }
+        rebuildMenu()
+    }
 
+    private func rebuildMenu() {
+        let hotkey = HotkeyConfig.load()
         let menu = NSMenu()
-        menu.addItem(withTitle: "Take Screenshot", action: #selector(openScreenshotTool), keyEquivalent: "")
+
+        let ssItem = NSMenuItem(title: "Take Screenshot  \(hotkey.displayString)", action: #selector(openScreenshotTool), keyEquivalent: "")
+        menu.addItem(ssItem)
+
+        let hotkeyItem = NSMenuItem(title: "Set Hotkey… (\(hotkey.displayString))", action: #selector(openHotkeyRecorder), keyEquivalent: "")
+        menu.addItem(hotkeyItem)
+
         menu.addItem(.separator())
 
-        let scaleItem = NSMenuItem(title: "Scale: \(ScalePreset.load().displayName)", action: nil, keyEquivalent: "")
+        let scaleItem = NSMenuItem(title: "Scale", action: nil, keyEquivalent: "")
         scaleItem.tag = 100
+        let scaleMenu = NSMenu()
+        for preset in ScalePreset.allCases {
+            let item = NSMenuItem(title: preset.displayName, action: #selector(selectScale(_:)), keyEquivalent: "")
+            item.representedObject = preset.rawValue
+            item.state = ScalePreset.load() == preset ? .on : .off
+            scaleMenu.addItem(item)
+        }
+        scaleItem.submenu = scaleMenu
         menu.addItem(scaleItem)
 
         menu.addItem(.separator())
@@ -48,8 +67,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = menu
     }
 
+    @objc private func openHotkeyRecorder() {
+        let panel = HotkeyRecorderPanel()
+        panel.onRecord = { [weak self] cfg in
+            cfg.save()
+            self?.reinstallEventTap()
+            self?.rebuildMenu()
+        }
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+        panel.startRecording()
+        recorderPanel = panel
+    }
+
     @objc private func openScreenshotTool() {
         showCaptureUI()
+    }
+
+    @objc private func selectScale(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let preset = ScalePreset(rawValue: raw) else { return }
+        preset.save()
+        // Update checkmarks
+        sender.menu?.items.forEach { $0.state = .off }
+        sender.state = .on
     }
 
     // MARK: - Capture UI
@@ -59,35 +100,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hideCaptureUI()
 
         let overlay = CaptureOverlayWindow()
-        let toolbar = ToolbarPanel()
 
         overlay.onDismiss = { [weak self] in self?.hideCaptureUI() }
         overlay.onCapture = { [weak self] in
-            self?.performCapture(overlay: overlay, toolbar: toolbar)
-        }
-        toolbar.onClose   = { [weak self] in self?.hideCaptureUI() }
-        toolbar.onCapture = { [weak self] in
-            self?.performCapture(overlay: overlay, toolbar: toolbar)
+            self?.performCapture(overlay: overlay)
         }
 
-        let screen = NSScreen.main ?? NSScreen.screens[0]
         overlay.showWithCrosshair()
-        toolbar.showCentered(on: screen)
-
         self.overlayWindow = overlay
-        self.toolbarPanel = toolbar
     }
 
     private func hideCaptureUI() {
         overlayWindow?.hide()
-        toolbarPanel?.hide()
         overlayWindow = nil
-        toolbarPanel = nil
     }
 
-    private func performCapture(overlay: CaptureOverlayWindow, toolbar: ToolbarPanel) {
+    private func performCapture(overlay: CaptureOverlayWindow) {
         guard let rect = overlay.currentSelectionInScreenCoords() else { return }
-        let preset = toolbar.selectedScale
+        let preset = ScalePreset.load()
         hideCaptureUI()
 
         Task { @MainActor in
@@ -95,12 +125,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             ScreenCaptureManager.shared.copyToClipboard(pngData: pngData)
-            self.updateScaleMenuItem(preset: preset)
         }
-    }
-
-    private func updateScaleMenuItem(preset: ScalePreset) {
-        statusItem.menu?.item(withTag: 100)?.title = "Scale: \(preset.displayName)"
     }
 
     // MARK: - Global Hotkey (Cmd+Shift+6)
@@ -114,6 +139,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         installEventTap()
     }
 
+    private func reinstallEventTap() {
+        if let old = eventTap { CGEvent.tapEnable(tap: old, enable: false) }
+        eventTap = nil
+        installEventTap()
+    }
+
     private func installEventTap() {
         let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
         guard let tap = CGEvent.tapCreate(
@@ -123,14 +154,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             eventsOfInterest: mask,
             callback: { _, type, event, refcon -> Unmanaged<CGEvent>? in
                 guard type == .keyDown else { return Unmanaged.passRetained(event) }
-                let flags = event.flags
+                let cfg = HotkeyConfig.load()
                 let keycode = event.getIntegerValueField(.keyboardEventKeycode)
-                // keycode 22 = key "6"; Cmd+Shift only
-                if keycode == 22,
-                   flags.contains(.maskCommand),
-                   flags.contains(.maskShift),
-                   !flags.contains(.maskAlternate),
-                   !flags.contains(.maskControl) {
+                let flags = event.flags
+                let wantFlags = CGEventFlags(rawValue: cfg.modifiers)
+                // Match keycode and all required modifiers (ignore caps/numpad bits)
+                let relevant = flags.intersection([.maskCommand, .maskShift, .maskAlternate, .maskControl])
+                if keycode == cfg.keyCode && relevant == wantFlags {
                     let delegate = Unmanaged<AppDelegate>.fromOpaque(refcon!).takeUnretainedValue()
                     DispatchQueue.main.async { delegate.showCaptureUI() }
                     return nil // consume event
