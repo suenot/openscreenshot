@@ -22,23 +22,38 @@ class ScreenCaptureManager {
 
     // MARK: - Capture
 
-    /// Captures `rect` (in screen points) and scales by `preset.factor`. Returns PNG data or nil.
+    /// Captures `rect` (in CG global screen points, top-left origin) and scales by `preset.factor`.
+    /// Returns PNG data or nil.
     func capture(rect: CGRect, preset: ScalePreset) async -> Data? {
-        guard let display = await primaryDisplay() else { return nil }
+        // NSScreen.frame uses AppKit coords (bottom-left origin).
+        // rect is in CG coords (top-left origin). Convert rect origin to AppKit to find the screen.
+        let primaryHeight = NSScreen.screens[0].frame.height
+        let appKitOrigin = CGPoint(x: rect.origin.x, y: primaryHeight - rect.origin.y - rect.height)
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(appKitOrigin) })
+                  ?? NSScreen.main
+                  ?? NSScreen.screens[0]
+
+        guard let display = await display(for: screen) else { return nil }
 
         let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
         let config = SCStreamConfiguration()
 
-        let scale = NSScreen.main?.backingScaleFactor ?? 2.0
+        let scale = screen.backingScaleFactor
+
+        // SCKit sourceRect: pixel coords relative to this display, top-left origin.
+        let screenCGTop = primaryHeight - screen.frame.maxY
+        let relX = rect.origin.x - screen.frame.minX
+        let relY = rect.origin.y - screenCGTop
+
         let pixelRect = CGRect(
-            x: rect.origin.x * scale,
-            y: rect.origin.y * scale,
+            x: relX * scale,
+            y: relY * scale,
             width: rect.width * scale,
             height: rect.height * scale
         )
 
-        config.width = Int(pixelRect.width)
-        config.height = Int(pixelRect.height)
+        config.width = Int(rect.width * scale)
+        config.height = Int(rect.height * scale)
         config.sourceRect = pixelRect
         config.scalesToFit = false
         config.pixelFormat = kCVPixelFormatType_32BGRA
@@ -58,10 +73,13 @@ class ScreenCaptureManager {
 
     // MARK: - Private
 
-    private func primaryDisplay() async -> SCDisplay? {
+    private func display(for screen: NSScreen) async -> SCDisplay? {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            return content.displays.first
+            // Match by display ID stored in NSScreen's deviceDescription
+            let screenID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+            return content.displays.first(where: { $0.displayID == screenID })
+                ?? content.displays.first
         } catch {
             return nil
         }
