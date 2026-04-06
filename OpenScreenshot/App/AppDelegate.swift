@@ -62,6 +62,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let toolbar = ToolbarPanel()
 
         overlay.onDismiss = { [weak self] in self?.hideCaptureUI() }
+        overlay.onCapture = { [weak self] in
+            self?.performCapture(overlay: overlay, toolbar: toolbar)
+        }
         toolbar.onClose   = { [weak self] in self?.hideCaptureUI() }
         toolbar.onCapture = { [weak self] in
             self?.performCapture(overlay: overlay, toolbar: toolbar)

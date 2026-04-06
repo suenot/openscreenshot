@@ -4,6 +4,7 @@ import SwiftUI
 class CaptureOverlayWindow: NSWindow {
 
     var onDismiss: (() -> Void)?
+    var onCapture: (() -> Void)?
 
     private var selectionRect: CGRect = .zero
     private var dragStartPoint: NSPoint = .zero
@@ -64,8 +65,13 @@ class CaptureOverlayWindow: NSWindow {
     // MARK: - Keyboard
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { // Escape
+        switch event.keyCode {
+        case 53: // Escape
             onDismiss?()
+        case 36, 76: // Return / Enter
+            onCapture?()
+        default:
+            break
         }
     }
 

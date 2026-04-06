@@ -20,9 +20,9 @@ struct SelectionView: View {
                         .position(x: selectionRect.midX, y: selectionRect.midY)
                         .blendMode(.destinationOut)
 
-                    // Selection border
+                    // Selection border (dashed)
                     Rectangle()
-                        .stroke(Color.white, lineWidth: 1)
+                        .stroke(Color.white, style: StrokeStyle(lineWidth: 1.5, dash: [6, 3]))
                         .frame(width: selectionRect.width, height: selectionRect.height)
                         .position(x: selectionRect.midX, y: selectionRect.midY)
                         .allowsHitTesting(false)
